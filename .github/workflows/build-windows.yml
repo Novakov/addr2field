@@ -1,0 +1,15 @@
+name: Build addr2field on Windows
+
+on:
+  - push
+
+jobs:
+  windows:
+    runs-on: windows-2019
+    steps:
+      - uses: actions/checkout@v3
+      - uses: TheMrMilchmann/setup-msvc-dev@v2
+        with:
+          arch: x64
+      - run: pip install conan==1.54.0
+      - run: conan create -pr:h ./conan-profiles/windows-msvc -pr:b ./conan-profiles/windows-msvc -s:h build_type=Release -o:h libdwarf:shared=True dependencies/libdwarf/conanfile.py libdwarf/0.7.0@novakov/local

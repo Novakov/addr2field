@@ -1,0 +1,176 @@
+From d140694020853114e1bbebee91e431e2a0477325 Mon Sep 17 00:00:00 2001
+From: Maciej Nowak <maciejt.nowak@gmail.com>
+Date: Sun, 23 Oct 2022 16:44:19 +0200
+Subject: [PATCH] Conan adaptation
+
+---
+ CMakeLists.txt                           | 19 +++++++++++++------
+ src/lib/libdwarf/CMakeLists.txt          | 14 +++++---------
+ src/lib/libdwarf/dwarf_object_detector.c |  1 +
+ src/lib/libdwarf/libdwarf_private.h      | 19 ++++++++++---------
+ 4 files changed, 29 insertions(+), 24 deletions(-)
+
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index c67172eb..46a5285a 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -2,6 +2,9 @@ cmake_minimum_required(VERSION 3.3)
+ 
+ project(libdwarf C CXX)
+ 
++find_package(ZLIB)
++find_package(libelf)
++
+ list(APPEND CMAKE_MODULE_PATH ${CMAKE_CURRENT_SOURCE_DIR}/cmake)
+ include_directories( ${CMAKE_BINARY_DIR} )
+ 
+@@ -122,10 +125,10 @@ check_include_file( "stdint.h"        HAVE_STDINT_H   )
+ check_include_file( "unistd.h"        HAVE_UNISTD_H   )
+ check_include_file( "sgidefs.h"       HAVE_SGIDEFS_H  )
+ check_include_file( "stdafx.h"        HAVE_STDAFX_H   )
+-check_include_file( "elf.h"           HAVE_ELF_H      ) 
+-check_include_file( "libelf.h"        HAVE_LIBELF_H   ) 
+ check_include_file( "fcntl.h"         HAVE_FCNTL_H   ) 
+-check_include_file( "libelf/libelf.h" HAVE_LIBELF_LIBELF_H) 
++set(HAVE_ELF_H FALSE)
++set(HAVE_LIBELF_H TRUE)
++set(HAVE_LIBELF_LIBELF_H FALSE)
+ 
+ ### cmake provides no way to guarantee uint32_t present.
+ ### configure does guarantee that.
+@@ -192,12 +195,14 @@ elseif(HAVE_LIBELF_LIBELF_H)
+ endif()
+ 
+ if (HAVE_LIBELF_H OR HAVE_LIBELF_LIBELF_H)
+-  set (CMAKE_REQUIRED_LIBRARIES elf)
++  set (CMAKE_REQUIRED_LIBRARIES CONAN_LIB::libelf_elf_${CONAN_CONFIG_SUFFIX})
++  set (CMAKE_REQUIRED_DEFINITIONS -D__LIBELF64=1)
+   message(STATUS "libelf header ${PLAIN_JUST_LIBELF} checking for elf64_getehdr")
+   check_symbol_exists( elf64_getehdr ${PLAIN_JUST_LIBELF} HAVE_ELF64_GETEHDR)
+   message(STATUS "libelf header ${PLAIN_JUST_LIBELF} checking for elf64_getshdr")
+   check_symbol_exists( elf64_getshdr ${PLAIN_JUST_LIBELF} HAVE_ELF64_GETSHDR)
+   set (CMAKE_REQUIRED_LIBRARIES)
++  set (CMAKE_REQUIRED_DEFINITIONS)
+ endif()
+ 
+ option(DWARF_WITH_LIBELF "Use libelf (default is YES)" TRUE)
+@@ -293,6 +298,9 @@ int main()
+     return 0;
+ }]=] HAVE_INTPTR_T)
+ 
++set (CMAKE_REQUIRED_LIBRARIES)
++set (CMAKE_REQUIRED_DEFINITIONS)
++
+ message(STATUS "CMAKE_SIZEOF_VOID_P ... " ${CMAKE_SIZEOF_VOID_P} )
+ 
+ # libdwarf  
+@@ -327,7 +335,7 @@ message(STATUS "Building api tests   ... ${DOTESTS}")
+ find_package(LibElf REQUIRED)
+ list(APPEND CMAKE_REQUIRED_INCLUDES ${LIBELF_INCLUDE_DIRS})
+ 
+-configure_file(cmake/config.h.cmake config.h)
++configure_file(${PROJECT_SOURCE_DIR}/cmake/config.h.cmake ${CMAKE_BINARY_DIR}/config.h)
+ 
+ if(BUILD_NON_SHARED)
+ 	set(DWARF_TARGETS dwarf-static)
+@@ -347,7 +355,6 @@ if(BUILD_SHARED)
+ endif()
+ 
+ add_subdirectory(src/lib/libdwarf)
+-add_subdirectory(src/bin/dwarfdump)
+ 
+ if ( BUILD_DWARFEXAMPLE )
+ 	add_subdirectory(src/bin/dwarfexample)
+diff --git a/src/lib/libdwarf/CMakeLists.txt b/src/lib/libdwarf/CMakeLists.txt
+index 37911395..008b5d81 100644
+--- a/src/lib/libdwarf/CMakeLists.txt
++++ b/src/lib/libdwarf/CMakeLists.txt
+@@ -59,7 +59,6 @@ dwarf_macho_loader.h
+ dwarf_memcpy_swap.h)
+ 
+ set_source_group(CONFIGURATION_FILES "Configuration Files" 
+-    ${CMAKE_SOURCE_DIR}/cmake/config.h.cmake 
+     ${CMAKE_BINARY_DIR}/config.h)
+ 	
+ list(LENGTH DWARF_TARGETS targetCount)
+@@ -75,13 +74,10 @@ foreach(i RANGE ${targetCount})
+             ${GENNAMES_OUTPUT} ${CONFIGURATION_FILES})
+ 
+ 	set_folder(${target} src/lib/libdwarf)
+-	target_include_directories(${target} PUBLIC 
+-            ${LIBELF_INCLUDE_DIRS})
+-    target_compile_options(${target} PRIVATE -DLIBDWARF_BUILD
+-            ${DW_FWALL})
+ 	msvc_posix(${target})
+ 
+-	target_link_libraries(${target} PUBLIC ${LIBELF_LIBRARIES} ${DW_FZLIB})
++    target_compile_definitions(${target} PRIVATE LIBDWARF_BUILD)
++	target_link_libraries(${target} PUBLIC libelf::libelf ZLIB::ZLIB)
+ 	
+ 	set_target_properties(${target} PROPERTIES OUTPUT_NAME dwarf)
+ 
+@@ -90,9 +86,9 @@ foreach(i RANGE ${targetCount})
+ 	set(BINDIR bin${SUFFIX})
+ 
+ 	install(TARGETS ${target}
+-		RUNTIME DESTINATION ${BINDIR}		
+-		LIBRARY DESTINATION ${LIBDIR}
+-		ARCHIVE DESTINATION ${LIBDIR})
++		RUNTIME DESTINATION bin
++		LIBRARY DESTINATION lib
++		ARCHIVE DESTINATION lib)
+ endforeach()
+ # The install has to be here, not in
+ # another CMakeLists.txt  to make install work properly
+diff --git a/src/lib/libdwarf/dwarf_object_detector.c b/src/lib/libdwarf/dwarf_object_detector.c
+index 32f290f2..7584c4b7 100644
+--- a/src/lib/libdwarf/dwarf_object_detector.c
++++ b/src/lib/libdwarf/dwarf_object_detector.c
+@@ -34,6 +34,7 @@ EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+ #include <stdlib.h> /* free() */
+ #include <stdio.h>  /* SEEK_END SEEK_SET */
+ #include <string.h> /* memset() strlen() */
++#include <stddef.h>
+ 
+ #ifdef _WIN32
+ #ifdef HAVE_STDAFX_H
+diff --git a/src/lib/libdwarf/libdwarf_private.h b/src/lib/libdwarf/libdwarf_private.h
+index 2e34691c..d74e5b93 100644
+--- a/src/lib/libdwarf/libdwarf_private.h
++++ b/src/lib/libdwarf/libdwarf_private.h
+@@ -9,6 +9,9 @@
+ */
+ #ifndef LIBDWARF_PRIVATE_H
+ #define LIBDWARF_PRIVATE_H
++
++#include <sys/types.h>
++
+ #define DW_PR_XZEROS "08"
+ 
+ #ifdef _WIN32
+@@ -29,15 +32,13 @@
+ #define  UNUSEDARG
+ #endif
+ 
+-#ifdef _MSC_VER /* Macro to select VS compiler */
+-#include <windows.h>
+-typedef SSIZE_T ssize_t;
+-#ifdef _WIN64
+-typedef long long off_t;
+-#else
+-typedef long off_t;
+-#endif
+-#endif /* _MSC_VER */
++ #ifdef _MSC_VER /* Macro to select VS compiler */
++ #include <windows.h>
++ typedef SSIZE_T ssize_t;
++ #ifndef _WIN64
++ typedef long off_t;
++ #endif
++ #endif /* _MSC_VER */
+ 
+ #ifndef TRUE
+ #define TRUE 1
+-- 
+2.38.1.windows.1
+

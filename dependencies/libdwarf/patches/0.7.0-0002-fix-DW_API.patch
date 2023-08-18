@@ -1,0 +1,16 @@
+diff --git a/src/lib/libdwarf/libdwarf.h b/src/lib/libdwarf/libdwarf.h
+index aa0b90f9..17cc8e98 100644
+--- a/src/lib/libdwarf/libdwarf.h
++++ b/src/lib/libdwarf/libdwarf.h
+@@ -50,7 +50,7 @@
+ #undef DW_API
+ #endif /* DW_API */
+ 
+-#if defined(_WIN32) || defined(__CYGWIN__)
++#if defined(LIBDWARF_SHARED) && (defined(_WIN32) || defined(__CYGWIN__))
+ # ifdef LIBDWARF_BUILD
+ #  define DW_API __declspec(dllexport)
+ # else /* !LIBDWARF_BUILD */
+-- 
+2.39.0.windows.1
+

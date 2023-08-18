@@ -1,0 +1,24 @@
+sources:
+  "20191104":
+    url: "https://www.prevanders.net/libdwarf-20191104.tar.gz"
+    sha256: "45f50a966314421b7dab525859853616df6c9680f0ccf2f44b030c505236eaba"
+  "0.4.2":
+    url: "https://github.com/davea42/libdwarf-code/releases/download/v0.4.2/libdwarf-0.4.2.tar.xz"
+    sha256: "c4369b6d9a929cb9e206f0cd65c325e76bbd1e66d49da19da5e7bc0cb8e6841a"
+  "0.7.0":
+    url: "https://github.com/davea42/libdwarf-code/releases/download/v0.7.0/libdwarf-0.7.0.tar.xz"
+    sha256: "23b71829de875fa5842e49f232c8ee1a5043805749738bc61424d9abc1189f38"
+patches:
+  "20191104":
+    - base_path: "source_subfolder"
+      patch_file: "patches/0001-patch.patch"
+  "0.4.2":
+    - base_path: "source_subfolder"
+      patch_file: "patches/0002-patch.patch"
+  "0.7.0":
+    - patch_file: "patches/0.7.0-0001-fix-cmake.patch"
+      patch_description: "use cci package, remove lib64/bin64 install folders"
+      patch_type: "conan"
+    - patch_file: "patches/0.7.0-0002-fix-DW_API.patch"
+      patch_description: "fix DW_API definition"
+      patch_type: "portability"
