@@ -1,0 +1,1 @@
+* `pwsat.elf` - https://github.com/PW-Sat2/PWSat2OBC/releases/tag/OBC_v1.1 FlightModel `pwsat` binary

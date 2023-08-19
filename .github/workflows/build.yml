@@ -1,0 +1,39 @@
+name: Build addr2field
+
+on:
+  - push
+
+jobs:
+  build:
+    strategy:
+      matrix:
+        include:
+          - os: windows-2019
+            profile: ./conan-profiles/windows-msvc
+            configure_preset: default
+            build_dir: ""
+          - os: ubuntu-latest
+            profile: ./conan-profiles/default-gcc-libstdcxx
+            configure_preset: release
+            build_dir: "Release"
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v3
+      - uses: TheMrMilchmann/setup-msvc-dev@v2
+        with:
+          arch: x64
+        if: runner.os == 'Windows'
+      - run: pip install conan==1.54.0
+      - run: conan profile new default --detect
+      - run: conan create -pr:h ${{ matrix.profile }} -pr:b ${{ matrix.profile }} -s:h build_type=Release -o:h libdwarf:shared=False dependencies/libdwarf/conanfile.py libdwarf/0.7.0@novakov/local
+      - run: conan install -pr:h ${{ matrix.profile }} -pr:b ${{ matrix.profile }} -s:h build_type=Release -s:b build_type=Release -o:h *:shared=False --install-folder build --output-folder build conanfile.py
+      - run: |
+          ${{ runner.os != 'Windows' && 'source' }} ./build/build/generators/conanbuild${{ runner.os == 'Windows' && '.ps1' || '.sh' }}
+          cmake --preset ${{ matrix.configure_preset }}
+          cmake --build --preset release
+          cmake --install ./build/build/${{ matrix.build_dir }} --prefix ./build/install --config Release
+          ctest --test-dir ./build/build/${{ matrix.build_dir }} -C Release --rerun-failed --output-on-failure
+      - uses: actions/upload-artifact@v3
+        with:
+          name: addr2field-${{ matrix.os }}
+          path: build/install/
