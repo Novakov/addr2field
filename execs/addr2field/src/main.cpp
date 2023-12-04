@@ -12,6 +12,7 @@
 #include "libdwarf/libdwarf.h"
 #include "spdlog/sinks/stdout_color_sinks.h"
 #include "spdlog/spdlog.h"
+#include <iostream>
 
 using namespace std::string_literals;
 
@@ -279,11 +280,107 @@ static std::optional<std::string> GlobalVariableName(
     return std::nullopt;
 }
 
+static void LookupAddress(std::uint32_t lookupAddress, const char* elfFile, dwarf::DebugInfo& dbg, Namespace& root)
+{
+    spdlog::info("Address for lookup: 0x{:08X}", lookupAddress);
+
+    auto containingSymbol = LookupSymbolByAddress(elfFile, lookupAddress);
+    if(!containingSymbol.has_value())
+    {
+        printf(
+            "0x%08X - Failed to match address to symbol\n",
+            lookupAddress);
+    }
+
+    auto [linkageName, inVariableOffset] = *containingSymbol;
+
+    spdlog::info("Symbol name: {}+{}", linkageName, inVariableOffset);
+
+    spdlog::info("Looking for DIE matching symbol");
+    dwarf::Die variableDie{};
+    while(dwarf::NavigateToNextCompilationUnit(dbg))
+    {
+        auto cuDie = dwarf::GetCompilationUnitTopDie(dbg, true);
+        spdlog::debug("CU: {}", dwarf::ReadDieName(cuDie).value_or("(unnamed)"));
+
+        variableDie = FindVariableDie(dbg, cuDie, linkageName, lookupAddress - inVariableOffset);
+        if(static_cast<bool>(variableDie))
+        {
+            // iterate to the end of CU list
+            while(dwarf::NavigateToNextCompilationUnit(dbg))
+                ;
+            break;
+        }
+    }
+
+    if(!static_cast<bool>(variableDie))
+    {
+        printf(
+            "0x%08X - DIE for variable not found. Symbol: %s+%lu\n",
+            lookupAddress,
+            linkageName.c_str(),
+            inVariableOffset);
+        return;
+    }
+
+    spdlog::debug(
+        "Found variable die (offset=0x{:08X}) {}+{}", dwarf::GetDieOffset(variableDie), dwarf::ReadDieName(variableDie).value_or("(unnamed)"), inVariableOffset);
+
+    auto typeDie = ResolveTypeFromDie(dbg, root, variableDie);
+
+    if(!static_cast<bool>(typeDie))
+    {
+        printf("DIE offset: %llu\n", dwarf::GetDieOffset(variableDie));
+        printf(
+            "0x%08X - Failed to resolve type DIE for variable. Symbol: %s+%lu\n",
+            lookupAddress,
+            linkageName.c_str(),
+            inVariableOffset);
+        return;
+    }
+
+    std::vector<AccessPathItem> accessPath;
+
+    auto fullName = GlobalVariableName(
+        dbg, dwarf::GetCompilationUnitTopDie(dbg, true, variableDie), variableDie, "");
+
+    accessPath.push_back(GlobalVariableAccess{fullName.value_or("(unnamed)"), inVariableOffset});
+
+    ResolveAddressToPath(dbg, root, typeDie, inVariableOffset, accessPath);
+
+    printf("0x%08X - ", lookupAddress);
+
+    for(const auto& pathItem: accessPath)
+    {
+        if(std::holds_alternative<GlobalVariableAccess>(pathItem))
+        {
+            auto& item = std::get<GlobalVariableAccess>(pathItem);
+
+            printf("%s", item.name.c_str());
+        }
+        else if(std::holds_alternative<MemberAccess>(pathItem))
+        {
+            auto& item = std::get<MemberAccess>(pathItem);
+
+            printf(".%s", item.name.c_str());
+        }
+        else if(std::holds_alternative<ArrayAccess>(pathItem))
+        {
+            auto& item = std::get<ArrayAccess>(pathItem);
+            printf("[%ld]", item.index);
+        }
+    }
+    printf("\n");
+}
+
 int main(int argc, char* argv[])
 {
     if(argc < 3)
     {
         fprintf(stderr, "%s <elf file> 0x<address in hex> [0x<address in hex>...]\n", argv[0]);
+        fprintf(stderr, "\tResolve addresses given on command line\n");
+        fprintf(stderr, "%s <elf file> 0x<address in hex> - \n", argv[0]);
+        fprintf(stderr, "\tAccept addresses one-by-one from standard input and resolve them\n");
         return 1;
     }
 
@@ -306,101 +403,40 @@ int main(int argc, char* argv[])
         BuildTypeTree(dbg, cuDie, root);
     }
 
-    for(auto arg = 2; arg < argc; arg++)
+    if (argc == 3 && std::string_view{argv[2]} == "-")
     {
-        std::uint32_t lookupAddress = 0;
+        // Read from stdin
+        std::string line;
+        while(std::getline(std::cin, line))
         {
-            std::string_view s{argv[arg]};
-            std::from_chars(s.data() + 2, s.data() + s.size(), lookupAddress, 16);
-        }
-
-        spdlog::info("Address for lookup: 0x{:08X}", lookupAddress);
-
-        auto containingSymbol = LookupSymbolByAddress(argv[1], lookupAddress);
-        if(!containingSymbol.has_value())
-        {
-            spdlog::error("Failed to match address {} to symbol", lookupAddress);
-            return 2;
-        }
-
-        auto [linkageName, inVariableOffset] = *containingSymbol;
-
-        spdlog::info("Symbol name: {}+{}", linkageName, inVariableOffset);
-
-        spdlog::info("Looking for DIE matching symbol");
-        dwarf::Die variableDie{};
-        while(dwarf::NavigateToNextCompilationUnit(dbg))
-        {
-            auto cuDie = dwarf::GetCompilationUnitTopDie(dbg, true);
-            spdlog::debug("CU: {}", dwarf::ReadDieName(cuDie).value_or("(unnamed)"));
-
-            variableDie = FindVariableDie(dbg, cuDie, linkageName, lookupAddress - inVariableOffset);
-            if(static_cast<bool>(variableDie))
+            if (line.empty())
             {
-                // iterate to the end of CU list
-                while(dwarf::NavigateToNextCompilationUnit(dbg))
-                    ;
                 break;
             }
-        }
-
-        if(!static_cast<bool>(variableDie))
-        {
-            printf(
-                "0x%08X - DIE for variable not found. Symbol: %s+%lu\n",
-                lookupAddress,
-                linkageName.c_str(),
-                inVariableOffset);
-            continue;
-        }
-
-        spdlog::debug(
-            "Found variable die (offset=0x{:08X}) {}+{}", dwarf::GetDieOffset(variableDie), dwarf::ReadDieName(variableDie).value_or("(unnamed)"), inVariableOffset);
-
-        auto typeDie = ResolveTypeFromDie(dbg, root, variableDie);
-
-        if(!static_cast<bool>(typeDie))
-        {
-            printf("DIE offset: %llu\n", dwarf::GetDieOffset(variableDie));
-            printf(
-                "0x%08X - Failed to resolve type DIE for variable. Symbol: %s+%lu\n",
-                lookupAddress,
-                linkageName.c_str(),
-                inVariableOffset);
-            continue;
-        }
-
-        std::vector<AccessPathItem> accessPath;
-
-        auto fullName = GlobalVariableName(
-            dbg, dwarf::GetCompilationUnitTopDie(dbg, true, variableDie), variableDie, "");
-
-        accessPath.push_back(GlobalVariableAccess{fullName.value_or("(unnamed)"), inVariableOffset});
-
-        ResolveAddressToPath(dbg, root, typeDie, inVariableOffset, accessPath);
-
-        printf("0x%08X - ", lookupAddress);
-
-        for(const auto& pathItem: accessPath)
-        {
-            if(std::holds_alternative<GlobalVariableAccess>(pathItem))
+            std::uint32_t lookupAddress = 0;
             {
-                auto& item = std::get<GlobalVariableAccess>(pathItem);
+                std::string_view s{line};
+                if(auto [_, ec] = std::from_chars(s.data() + 2, s.data() + s.size(), lookupAddress, 16); ec != std::errc{})
+                {
+                    printf("Invalid address: %s\n", line.c_str());
+                    continue;
+                }
+            }
 
-                printf("%s", item.name.c_str());
-            }
-            else if(std::holds_alternative<MemberAccess>(pathItem))
-            {
-                auto& item = std::get<MemberAccess>(pathItem);
-
-                printf(".%s", item.name.c_str());
-            }
-            else if(std::holds_alternative<ArrayAccess>(pathItem))
-            {
-                auto& item = std::get<ArrayAccess>(pathItem);
-                printf("[%ld]", item.index);
-            }
+            LookupAddress(lookupAddress, argv[1], dbg, root);
         }
-        printf("\n");
+    }
+    else
+    {
+        for(auto arg = 2; arg < argc; arg++)
+        {
+            std::uint32_t lookupAddress = 0;
+            {
+                std::string_view s{argv[arg]};
+                std::from_chars(s.data() + 2, s.data() + s.size(), lookupAddress, 16);
+            }
+
+            LookupAddress(lookupAddress, argv[1], dbg, root);
+        }
     }
 }
