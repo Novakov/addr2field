@@ -85,13 +85,12 @@ std::optional<std::tuple<std::string, std::uint64_t>>
         memcpy(&sym, ((const std::byte*)symbolData->d_buf) + i * symbolSize, symbolSize);
 
         auto symbolName = static_cast<const char*>(stringData->d_buf) + sym.st_name;
-
-        if(ELF32_ST_BIND(sym.st_info) != STB_GLOBAL)
+        if(ELF32_ST_TYPE(sym.st_info) != STT_OBJECT)
         {
             continue;
         }
 
-        if((sym.st_value <= address) && (address <= (sym.st_value + sym.st_size)))
+        if((sym.st_value <= address) && (address < (sym.st_value + sym.st_size)))
         {
             return std::make_tuple(std::string{symbolName}, address - sym.st_value);
         }

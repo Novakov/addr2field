@@ -290,6 +290,7 @@ static void LookupAddress(std::uint32_t lookupAddress, const char* elfFile, dwar
         printf(
             "0x%08X - Failed to match address to symbol\n",
             lookupAddress);
+        return;
     }
 
     auto [linkageName, inVariableOffset] = *containingSymbol;

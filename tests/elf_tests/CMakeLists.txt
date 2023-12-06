@@ -11,3 +11,5 @@ endfunction()
 
 add_elf_test(elfs/pwsat.elf 0x88018e38 ::Main.Storage._storage.Device._device.obj_bucket[116].count)
 add_elf_test(elfs/pwsat.elf 0x880f6d0f ::i2cTransfer[0].offset)
+add_elf_test(elfs/binary_semaphore.elf 0x200000F0 ::SwitchingSemaphoreBuffer.pvDummy1[0])
+add_elf_test(elfs/binary_semaphore.elf 0x2000009C ::ObservedSemaphoreBuffer.pvDummy1[0])
